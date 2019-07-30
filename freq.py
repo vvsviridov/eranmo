@@ -28,6 +28,7 @@ def transaction_wrapper(func):
 
     def inner1(*args, **kwargs):
         try:
+            mib = args[0]
             mib.beginTransaction(60)
             returned_value = func(*args, **kwargs)
             mib.commitTransaction()
@@ -48,16 +49,16 @@ def prepareNameValue(func):
         func {function} -- function to be wrapped
 
     Returns:
-        None
+        [function] -- wrapped function
     """
 
     def inner2(*args, **kwargs):
         paramNameValueList = NameValueList()
-        for k, v in kwargs:
+        for k, v in kwargs.items():
             paramNameValueList.set(k, v)
         print 'Attributes to set are = ', paramNameValueList.toString()
-        args.append(paramNameValueList)
-        func(*args)
+        kwargs.update({'nvList': paramNameValueList})
+        func(*args, **kwargs)
     return inner2
 
 
@@ -84,7 +85,7 @@ def get_attributes(mib, fdn, nmValueList):
 
 @transaction_wrapper
 @prepareNameValue
-def set_attributes(mib, fdn, nmValueList):
+def set_attributes(mib, fdn, **kwargs):
 
     """
     Function for setting parameter's values to the network
@@ -94,16 +95,16 @@ def set_attributes(mib, fdn, nmValueList):
         fdn {string} -- Object's FDN for ex.:
             SubNetwork=ONRM_ROOT_MO_R,SubNetwork=ENODEBS,MeContext=ERBS1,\
                 ManagedElement=1,ENodeBFunction=1,EUtranCellFDD=FDDCELL1
-        nmValueList {NameValueList} -- NameValueList Object \
-            with parameters and setted values
+        kwargs {kwargs} -- keyword arguments param=value
     """
 
-    mib.setAttributes(fdn, nmValueList)
+    mib.setAttributes(fdn, kwargs['nvList'])
 
 
 @transaction_wrapper
 @prepareNameValue
-def execute_action(mib, fdn, actionName, nmValueList):
+def execute_action(mib, fdn, actionName, **kwargs):
+
     """
     Function for executing "action" on the network's objects
 
@@ -113,14 +114,14 @@ def execute_action(mib, fdn, actionName, nmValueList):
             SubNetwork=ONRM_ROOT_MO_R,SubNetwork=ENODEBS,MeContext=ERBS1,\
                 ManagedElement=1,ENodeBFunction=1,EUtranCellFDD=FDDCELL1
         actionName {string} -- Action's name
-        nmValueList {NameValueList} -- NameValueList Object \
-            with parameters and setted values
+        kwargs {kwargs} -- keyword arguments param=value
     """
 
-    mib.action(fdn, actionName, nmValueList)
+    mib.action(fdn, actionName, kwargs['nvList'])
 
 
 def main():
+
     """
     Program's main function
     It reads data from csv file formatted as
@@ -136,50 +137,51 @@ def main():
     delim = ','
     MIB = MibAccess.create()
     if os.path.isfile(datafilename):
-        with open(datafilename, 'r') as datafile:
-            for line in datafile:
-                subnet, erbs, cell, bandwidth, earfcndl \
-                    = line.strip().split(delim)
-                fdn_parts = {'SubNetwork': subnet,
-                             'MeContext': erbs,
-                             'ManagedElement': '1',
-                             'ENodeBFunction': '1',
-                             'EUtranCellFDD': cell}
-                FDN = ','.join(['SubNetwork=ONRM_ROOT_MO_R'] +
-                               ['%s=%s' % (k, v) for k, v in fdn_parts.items()]
-                               )
-                dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
-                print 'OP_PROGRESS: ', dt, FDN
-                attrGet = []
-                attrGet.append('administrativeState')
-                attrGet.append('operationalState')
-                attrGet.append('dlChannelBandwidth')
-                attrGet.append('ulChannelBandwidth')
-                attrGet.append('earfcndl')
-                attrGet.append('earfcnul')
-                getValueList = get_attributes(MIB, FDN, attrGet)
-                current_cell_state = getValueList.get('administrativeState')
-                set_attributes(MIB,
-                               FDN,
-                               administrativeState=0,
-                               dlChannelBandwidth=int(bandwidth),
-                               ulChannelBandwidth=int(bandwidth)
-                               )
-                dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
-                print 'OP_PROGRESS: ', dt, FDN
-                print 'Execute action = changeFrequency'
-                execute_action(MIB,
-                               FDN,
-                               'changeFrequency',
-                               earfcn=int(earfcndl)
-                               )
-                dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
-                print 'OP_PROGRESS: ', dt, FDN
-                print 'Return to previous state = ', current_cell_state
-                set_attributes(MIB,
-                               FDN,
-                               administrativeState=current_cell_state
-                               )
+        datafile = open(datafilename, 'r')
+        for line in datafile:
+            subnet, erbs, cell, bandwidth, earfcndl \
+                = line.strip().split(delim)
+            fdn_parts = []
+            fdn_parts.append('SubNetwork=ONRM_ROOT_MO_R')
+            fdn_parts.append('SubNetwork=%s' % subnet)
+            fdn_parts.append('MeContext=%s' % erbs)
+            fdn_parts.append('ManagedElement=1')
+            fdn_parts.append('ENodeBFunction=1')
+            fdn_parts.append('EUtranCellFDD=%s' % cell)
+            FDN = ','.join(fdn_parts)
+            dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
+            print 'OP_PROGRESS: ', dt, FDN
+            attrGet = []
+            attrGet.append('administrativeState')
+            attrGet.append('operationalState')
+            attrGet.append('dlChannelBandwidth')
+            attrGet.append('ulChannelBandwidth')
+            attrGet.append('earfcndl')
+            attrGet.append('earfcnul')
+            getValueList = get_attributes(MIB, FDN, attrGet)
+            current_cell_state = getValueList.get('administrativeState')
+            set_attributes(MIB,
+                           FDN,
+                           administrativeState=0,
+                           dlChannelBandwidth=int(bandwidth),
+                           ulChannelBandwidth=int(bandwidth)
+                           )
+            dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
+            print 'OP_PROGRESS: ', dt, FDN
+            print 'Execute action = changeFrequency'
+            execute_action(MIB,
+                           FDN,
+                           'changeFrequency',
+                           earfcn=int(earfcndl)
+                           )
+            dt = datetime.datetime.now().strftime('%y/%m/%d %H:%M:%S')
+            print 'OP_PROGRESS: ', dt, FDN
+            print 'Return to previous state = ', current_cell_state
+            set_attributes(MIB,
+                           FDN,
+                           administrativeState=current_cell_state
+                           )
+        datafile.close()
 
 
 if __name__ == '__main__':
